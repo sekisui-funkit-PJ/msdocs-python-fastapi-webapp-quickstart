@@ -42,9 +42,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+# from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
+import uvicorn
+from langchain.vectorstores import InMemoryDocstore
+from langchain.docstore import InMemoryDocstore as InMemoryDocstoreBase
+
 
 # ロギングの設定
 logging.basicConfig(level=logging.DEBUG)
@@ -65,10 +69,14 @@ if not openai_api_key:
     logger.error("OPENAI_API_KEY is not set in the environment variables")
     raise ValueError("OPENAI_API_KEY is not set in the environment variables")
 
-try:
-    # ベクトルストアの初期化
+ttry:
+    # シンプルな辞書ベースのベクトルストア
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-    vector_store = FAISS.from_texts(["今日の天気は曇りのち雨", "Sample text 2", "Sample text 3"], embeddings)
+    texts = ["今日の天気は曇りのち雨", "Sample text 2", "Sample text 3"]
+    vectors = embeddings.embed_documents(texts)
+    text_to_vector = dict(zip(texts, vectors))
+    docstore = InMemoryDocstoreBase(text_to_vector)
+    vector_store = InMemoryDocstore(docstore, embeddings)
 
     # RAGチェーンの作成
     llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, openai_api_key=openai_api_key)
@@ -80,8 +88,9 @@ try:
     logger.info("RAG chain initialized successfully")
 except Exception as e:
     logger.error(f"Error initializing RAG chain: {str(e)}")
-    raise HTTPException(status_code=500, detail="Internal server error")
-
+    logger.error(traceback.format_exc())
+    qa_chain = None
+    
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     logger.debug("Accessing root route")
@@ -98,7 +107,9 @@ async def ask_question(request: Request, question: str = Form(...)):
         logger.error(f"Error processing question: {str(e)}")
         return templates.TemplateResponse("index.html", {"request": request, "answer": f"Error: {str(e)}", "question": question})
 
-if __name__ == "__main__":
-    import uvicorn
-    logger.info("Starting the application")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# if __name__ == "__main__":
+#     # import uvicorn
+#     logger.info("Starting the application")
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
+if __name__ == '__main__':
+      uvicorn.run('main:app', host='0.0.0.0', port=8000)

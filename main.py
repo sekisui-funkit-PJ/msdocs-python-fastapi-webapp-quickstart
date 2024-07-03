@@ -69,29 +69,54 @@ if not openai_api_key:
     logger.error("OPENAI_API_KEY is not set in the environment variables")
     raise ValueError("OPENAI_API_KEY is not set in the environment variables")
 
-try:
-    # シンプルな辞書ベースのベクトルストア
-    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-    texts = ["今日の天気は曇りのち雨", "Sample text 2", "Sample text 3"]
-    vectors = embeddings.embed_documents(texts)
-    text_to_vector = dict(zip(texts, vectors))
-    docstore = InMemoryDocstoreBase(text_to_vector)
-    vector_store = InMemoryDocstore(docstore, embeddings)
+# カスタムベクトルストアクラス
+class CustomVectorStore:
+    def __init__(self, texts, embeddings):
+        self.texts = texts
+        self.embeddings = embeddings
+        self.vectors = None
 
-    # RAGチェーンの作成
+    def embed(self):
+        self.vectors = self.embeddings.embed_documents(self.texts)
+
+    def similarity_search(self, query, k=1):
+        query_vector = self.embeddings.embed_query(query)
+        similarities = cosine_similarity([query_vector], self.vectors)[0]
+        top_k_indices = np.argsort(similarities)[-k:][::-1]
+        return [self.texts[i] for i in top_k_indices]
+
+try:
+    # embeddings と LLM の初期化
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
     llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, openai_api_key=openai_api_key)
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=vector_store.as_retriever()
-    )
+
+    # カスタムベクトルストアの初期化
+    texts = ["今日の天気は曇りのち雨", "東京の人口は約1400万人です", "富士山の高さは3776メートルです"]
+    vector_store = CustomVectorStore(texts, embeddings)
+    vector_store.embed()
+
+    # プロンプトテンプレートの作成
+    prompt_template = """以下のコンテキストを使用して、質問に答えてください。
+
+    コンテキスト:
+    {context}
+
+    質問: {question}
+
+    回答:"""
+    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+
+    # LLMチェーンの作成
+    qa_chain = LLMChain(llm=llm, prompt=prompt)
+
     logger.info("RAG chain initialized successfully")
 except Exception as e:
     logger.error(f"Error initializing RAG chain: {str(e)}")
     logger.error(traceback.format_exc())
     qa_chain = None
+    vector_store = None
 
-@app.get("/", response_class=HTMLResponse)
+@@app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     logger.debug("Accessing root route")
     return templates.TemplateResponse("index.html", {"request": request})
@@ -99,14 +124,24 @@ async def read_root(request: Request):
 @app.post("/ask", response_class=HTMLResponse)
 async def ask_question(request: Request, question: str = Form(...)):
     logger.debug(f"Received question: {question}")
+    if qa_chain is None or vector_store is None:
+        logger.error("RAG chain or vector store is not initialized")
+        raise HTTPException(status_code=500, detail="System is not properly initialized. Check server logs for more details.")
     try:
-        answer = qa_chain.run(question)
+        # 類似度検索を実行
+        relevant_texts = vector_store.similarity_search(question, k=1)
+        context = "\n".join(relevant_texts)
+
+        # 質問に回答
+        answer = qa_chain.run(context=context, question=question)
+
         logger.info(f"Generated answer for question: {question}")
         return templates.TemplateResponse("index.html", {"request": request, "answer": answer, "question": question})
     except Exception as e:
         logger.error(f"Error processing question: {str(e)}")
-        return templates.TemplateResponse("index.html", {"request": request, "answer": f"Error: {str(e)}", "question": question})
-
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error processing question: {str(e)}")
+        
 # if __name__ == "__main__":
 #     # import uvicorn
 #     logger.info("Starting the application")

@@ -69,7 +69,7 @@ if not openai_api_key:
     logger.error("OPENAI_API_KEY is not set in the environment variables")
     raise ValueError("OPENAI_API_KEY is not set in the environment variables")
 
-ttry:
+try:
     # シンプルな辞書ベースのベクトルストア
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
     texts = ["今日の天気は曇りのち雨", "Sample text 2", "Sample text 3"]
@@ -90,7 +90,7 @@ except Exception as e:
     logger.error(f"Error initializing RAG chain: {str(e)}")
     logger.error(traceback.format_exc())
     qa_chain = None
-    
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     logger.debug("Accessing root route")

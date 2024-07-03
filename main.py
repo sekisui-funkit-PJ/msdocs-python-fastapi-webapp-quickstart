@@ -45,10 +45,13 @@ from langchain.embeddings import OpenAIEmbeddings
 # from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.chat_models import ChatOpenAI
-import uvicorn
-from langchain.vectorstores import InMemoryDocstore
-from langchain.docstore import InMemoryDocstore as InMemoryDocstoreBase
 
+import traceback
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+import uvicorn
 
 # ロギングの設定
 logging.basicConfig(level=logging.DEBUG)
@@ -116,7 +119,7 @@ except Exception as e:
     qa_chain = None
     vector_store = None
 
-@@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     logger.debug("Accessing root route")
     return templates.TemplateResponse("index.html", {"request": request})
@@ -141,7 +144,7 @@ async def ask_question(request: Request, question: str = Form(...)):
         logger.error(f"Error processing question: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error processing question: {str(e)}")
-        
+
 # if __name__ == "__main__":
 #     # import uvicorn
 #     logger.info("Starting the application")
